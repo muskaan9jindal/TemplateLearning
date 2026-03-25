@@ -10,14 +10,14 @@ GPU_ID = ['0', '1']
 dimentions = (2048, 2048, 1024)  # in Angstroms (tetris size * tetris pixel size)
 phase_plates = True
 # paramters used as variations (here 48 variations)
-total_doses = [75, 150]
-tilt_steps = [2, 4]
-start_angles = [-60, -40]
-ice_densities = [0.9, 1.1]
+total_doses = [120]
+tilt_steps = [2]
+start_angles = [-60]
+ice_densities = [1.1]
 if phase_plates:
-    defoci = [0, -0.5, -1]
+    defoci = [-0.5]
 else:
-    defoci = [-2.5, -3.25, -4]
+    defoci = [-4]
 
 ############# CODE #############
 # generating configurations from tetrises

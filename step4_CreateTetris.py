@@ -1,4 +1,4 @@
-import os
+import os, sys
 import glob
 import tqdm
 import numpy
@@ -7,16 +7,16 @@ from scipy.spatial.transform import Rotation
 
 ############# USER #############
 tetris_sampling_rate = 16  # Attention: has to match the volumes sampling rate
-number_of_tetrises = 48
+number_of_tetrises = 1
 dimentions = ['128', '128', '64']
-iterations = 5
+iterations = 10
 insersion_distances = [-2, 0]
 sigma = 1.65
 gray_level_threshold = 100
 threads = None  # None is ( all CPUs -1 ) , if you want to use less CPUs, set it here
 grind = False  # grind will try to add more molecules, but the tetris dimention should be big enough for it to work, keep it False unless you are an expert
-density_ratio = 2  #  number of distractors for each template. Set it to 1 if your template is too small, 2 or more if the tempalte is big
-
+density_ratio = int(sys.argv[1]) #  number of distractors for each template. Set it to 1 if your template is too small, 2 or more if the tempalte is big
+nuc_chain_len = 20 ###ChroM
 ############# CODE #############
 templates = list(glob.glob('volumes/templates/*.mrc'))
 # repleat the templates just in case a template is alone, or the number of templates are less than distractors
@@ -43,9 +43,8 @@ for tetris_number in tqdm.tqdm(range(number_of_tetrises)):
                     distractors_and_frequencies[i, 1]]
         molecules_list.append(new_line)
         if i % density_ratio == 0:
-            new_line = [templates[i], distractors_and_frequencies[i, 1]]
-
-        molecules_list.append(new_line)
+            new_line = [templates[i], nuc_chain_len]
+            molecules_list.append(new_line) # ChroM: Crosscheck with authors.
 
     # now run the tetris
     molecules = list(numpy.array(molecules_list)[:, 0])

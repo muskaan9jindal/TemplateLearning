@@ -37,6 +37,9 @@ import multiprocessing
 import argparse
 import os
 
+import sys
+sys.path.append(os.path.join(os.path.dirname('/home/muskaan/projects/chromatinModeling/github_main/'), 'scripts'))
+import place_pdb_in_tomo as ppt # ChroM; New addition
 
 def rotate3d(data, rotation, center=None, order=2):
     """Rotate a 3D volume using a rotation matrix
@@ -141,6 +144,7 @@ def tetris(mols, dim, frequencies, Iterations, coordinate_table, angle_table, ou
 
     # all coordinates are important for padding and unpadding
     all_coordinates = []
+    all_angles = [] ###ChroM
 
     # Monkey patch fftpack with pyfftw.interfaces.scipy_fftpack
     # Allowing the calculation of fast implementation of fft
@@ -152,7 +156,7 @@ def tetris(mols, dim, frequencies, Iterations, coordinate_table, angle_table, ou
     scipy.fftpack = pyfftw.interfaces.scipy_fftpack
 
     very_first = True
-
+    coord_next = np.array([]) ###ChroM
     # Get the center of the output volume and the box size of the small volume
     center = np.array(dim) // 2
 
@@ -196,12 +200,24 @@ def tetris(mols, dim, frequencies, Iterations, coordinate_table, angle_table, ou
                 angles.append([phi, theta, psi])
                 coordinates.append(center)
                 all_coordinates.append(center)
+                all_angles.append([phi, theta, psi]) ###ChroM
                 very_first = False
 
             # Actually looping:
-            for _ in range(freq):
-                rotation = Rotation.random()
+            for f in range(freq): ###ChroM
+                ###ChroM-----------------
+                if ('templates' in mol) and (f > 0):
+                    coord_candidate = all_coordinates[-1]
+                    angle_candidate = all_angles[-1]
+                    obj = ppt.predict_next_nucs()
+                    coord_next, ang_next = obj.main(coord_candidate, angle_candidate)
+                    coord_next = coord_next.astype(int)
+                    rotation = Rotation.from_matrix(ang_next)
+                else:
+                ###ChroM-----------------
+                    rotation = Rotation.random()
                 rotated_molecule = rotate3d(molecule, rotation.as_matrix())
+
                 # Apply Gaussian filter to the molecule then binarize it
                 rotated_binary = gaussian3d(rotated_molecule, sigma)
                 rotated_binary = (rotated_binary > gray_level_threshold).astype(np.int8)
@@ -243,19 +259,49 @@ def tetris(mols, dim, frequencies, Iterations, coordinate_table, angle_table, ou
                 correlation_map[:, -box_size // 2 - 1:, :] = 0
                 correlation_map[:, :, -box_size // 2 - 1:] = 0
 
-                # getting the coordinates of the best correlation
-                coordinate = np.unravel_index(correlation_map.argmax(), correlation_map.shape)
-                if np.size(coordinate) == 3:  # in case there is more than one good place to put the molecule, continue
-                    if correlation_map[
-                        coordinate] <= 0:  # if any part of the template overlapped with a density we stop
-                        print('saturaturation is achieved')
-                        breaker = True
+                # getting the coordinates of the best correlation                
+                ###ChroM-----------------
+                half = box_size // 2
+                dim_arr = np.array(dim)
+
+                if ('templates' in mol) and (f == 0): # Choose first template at 0 correlation value
+                    zero_coords = np.argwhere(correlation_map == 0)
+                    # Keep only in-bounds coordinates
+                    valid_zero_coords = [tuple(coord) for coord in zero_coords
+                        if np.all((coord >= half) & (coord <= (dim_arr - half)))]
+
+                    if len(valid_zero_coords) > 0:
+                        coordinate = tuple(valid_zero_coords[np.random.choice(len(valid_zero_coords))])
+                    else:
+                        print("No valid zero-correlation position within bounds")
                         break
+                elif ('templates' in mol) and (f == 0):
+                    coordinate = coord_next
+                else:
+                    coordinate = np.unravel_index(correlation_map.argmax(), correlation_map.shape)
+                    
+                # Check bounds explicitly for the coord_next and distractor coord
+                out_of_bounds = not np.all((np.array(coordinate) >= half) & (np.array(coordinate) <= (np.array(dim) - half)))
+                negative_corr = False
+                ###ChroM-----------------
+
+                if np.size(coordinate) == 3:  # in case there is more than one good place to put the molecule, continue
+                    if not out_of_bounds: ###ChroM
+                        if correlation_map[
+                            coordinate] < 0:  # if any part of the template overlapped with a density we stop ###ChroM: allow correlation to be 0
+                            print('saturaturation is achieved')                        
+                            negative_corr = True 
+                    if out_of_bounds or negative_corr:
+                        print("Predicted coordinate invalid or saturated, breaking freq loop")
+                        break        
+
                     else:
                         place(outVolume, rotated_molecule, coordinate)
                         coordinates.append(coordinate)
                         all_coordinates.append(coordinate)
                         angles.append(rotation.inv().as_euler('ZYZ', degrees=True))
+                        all_angles.append(rotation.inv().as_euler('ZYZ', degrees=True)) ###ChroM
+                        coord_next = None ###ChroM
                 else:
                     continue
 
@@ -283,7 +329,6 @@ def tetris(mols, dim, frequencies, Iterations, coordinate_table, angle_table, ou
 
             np.savetxt(angles_file, angles, delimiter=',', fmt='%f', header='a_1,a_2,a_3')
             np.savetxt(coordinates_file, coordinates, delimiter=',', fmt='%d', header='c_1,c_2,c_3')
-
     # Saving the output volume only when the iterations are done, since we need to delete the old one
     if os.path.isfile(output_volume):
         os.system('rm {}'.format(output_volume))
@@ -291,7 +336,6 @@ def tetris(mols, dim, frequencies, Iterations, coordinate_table, angle_table, ou
         # transposing the data to save mrc file in the right way
         # mrc.set_data(-outVolume)
         mrc.set_data(np.transpose(-outVolume))
-
 
 if __name__ == '__main__':
     # this also generates --help and error handling
